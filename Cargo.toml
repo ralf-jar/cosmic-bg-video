@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "cosmic-bg-config",
+    "cosmic-bg-core"
+]
+resolver = "2"
