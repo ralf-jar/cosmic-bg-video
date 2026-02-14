@@ -1,0 +1,11 @@
+[Unit]
+Description=Cosmic Background Video Service
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/cosmic-bg-core --restore
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

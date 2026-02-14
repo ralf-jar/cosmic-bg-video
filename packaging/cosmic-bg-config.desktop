@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Cosmic Background Config
+Comment=Configure your video wallpaper
+Exec=cosmic-bg-config
+Icon=cosmic-bg-video
+Categories=Utility;
+Terminal=false
+StartupNotify=true

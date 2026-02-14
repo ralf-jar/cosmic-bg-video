@@ -4,6 +4,7 @@ mod state;
 mod video;
 mod app;
 
+use regex::Regex;
 use state::AppState;
 use app::AppData;
 use std::fs;
@@ -39,7 +40,9 @@ fn main() {
     // 2. Lógica de ejecución normal (Launcher)
     if args.len() < 3 { return; }
     let video_path = args[1].clone();
-    let target_monitor = args[2].clone();
+    let mut target_monitor = args[2].clone();
+    let re = Regex::new(r"^card\d+-").unwrap();
+    target_monitor = re.replace_all(&target_monitor, "").to_string();
 
     // Guardar estado
     let mut state = AppState::load();
@@ -106,6 +109,8 @@ fn main() {
 
     // Buscar el monitor objetivo
     let mut target_output = None;
+
+    // Intento 1: Coincidencia exacta por nombre (DP-1, HDMI-A-1, etc.)
     for output in app.output_state.outputs() {
         if let Some(info) = app.output_state.info(&output) {
             if info.name.as_deref() == Some(&target_monitor) {
@@ -113,6 +118,32 @@ fn main() {
                 break;
             }
         }
+    }
+
+    if target_output.is_none() {
+        let lower_target_monitor = target_monitor.to_lowercase();
+        for output in app.output_state.outputs() {
+            if let Some(info) = app.output_state.info(&output) {
+                if let Some(description) = info.description.as_deref() {
+                    if description.to_lowercase().contains(&lower_target_monitor) {
+                        target_output = Some(output);
+                        // Preferimos el nombre si coincide, pero la descripción es un fallback
+                        eprintln!(
+                            "Advertencia: Monitor '{}' no encontrado por nombre exacto. Usando coincidencia por descripción: '{}'",
+                            target_monitor, description
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if target_output.is_none() {
+        eprintln!(
+            "Advertencia: El monitor objetivo '{}' no fue encontrado. Usando el monitor predeterminado.",
+            target_monitor
+        );
     }
 
     // Crear la superficie de capa (Layer Surface)
