@@ -28,7 +28,6 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let is_daemon = args.iter().any(|arg| arg == "--daemon");
 
-    // 1. Lógica de inicio automático (--restore)
     if args.len() == 1 || (args.get(1).map(|s| s.as_str()) == Some("--restore") && !is_daemon) {
         let state = AppState::load();
         for (monitor, video) in state.monitors {
@@ -37,44 +36,34 @@ fn main() {
         return;
     }
 
-    // 2. Lógica de ejecución normal (Launcher)
     if args.len() < 3 { return; }
     let video_path = args[1].clone();
     let mut target_monitor = args[2].clone();
     let re = Regex::new(r"^card\d+-").unwrap();
     target_monitor = re.replace_all(&target_monitor, "").to_string();
 
-    // Guardar estado
     let mut state = AppState::load();
     state.monitors.insert(target_monitor.clone(), video_path.clone());
     state.save();
 
-    // --- MODIFICACIÓN: Si no es daemon, lanza uno y cierra el actual ---
     if !is_daemon {
         spawn_core_instance(&video_path, &target_monitor);
         return;
     }
-    // ------------------------------------------------------------------
 
-    // Manejo de PID para transición fluida
     let pid_path = AppState::get_pid_path(&target_monitor);
     let old_pid = fs::read_to_string(&pid_path).ok()
         .and_then(|s| s.trim().parse::<u32>().ok());
 
     let _ = fs::write(&pid_path, std::process::id().to_string());
 
-    // --- INICIO DEL MOTOR (Solo llega aquí si es --daemon) ---
-
-    // Inicializar GStreamer (vía nuestro módulo video)
     let uri = format!("file://{}", video_path);
     let (pipeline, appsink) = video::init_pipeline(&uri);
 
-    // Inicializar Wayland
     let conn = Connection::connect_to_env().unwrap();
     let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
 
-    // Estados de SCTK
     let compositor_state = CompositorState::bind(&globals, &qh).expect("wl_compositor faltante");
     let layer_shell = LayerShell::bind(&globals, &qh).expect("layer_shell faltante");
     let shm_state = Shm::bind(&globals, &qh).expect("wl_shm faltante");
@@ -103,14 +92,11 @@ fn main() {
         pid_path
     };
 
-    // Detectar monitores
     event_queue.roundtrip(&mut app).unwrap();
     event_queue.roundtrip(&mut app).unwrap();
 
-    // Buscar el monitor objetivo
     let mut target_output = None;
 
-    // Intento 1: Coincidencia exacta por nombre (DP-1, HDMI-A-1, etc.)
     for output in app.output_state.outputs() {
         if let Some(info) = app.output_state.info(&output) {
             if info.name.as_deref() == Some(&target_monitor) {
@@ -127,7 +113,6 @@ fn main() {
                 if let Some(description) = info.description.as_deref() {
                     if description.to_lowercase().contains(&lower_target_monitor) {
                         target_output = Some(output);
-                        // Preferimos el nombre si coincide, pero la descripción es un fallback
                         eprintln!(
                             "Advertencia: Monitor '{}' no encontrado por nombre exacto. Usando coincidencia por descripción: '{}'",
                             target_monitor, description
@@ -146,7 +131,6 @@ fn main() {
         );
     }
 
-    // Crear la superficie de capa (Layer Surface)
     let layer_surface = app.layer_shell.create_layer_surface(
         &qh, surface.clone(), Layer::Background, Some("video-wallpaper"), target_output.as_ref()
     );
@@ -157,14 +141,12 @@ fn main() {
 
     surface.commit();
 
-    // Inicializar Pool de memoria para frames
     let pool = smithay_client_toolkit::shm::slot::SlotPool::new(1920 * 1080 * 4, &app.shm_state)
         .expect("Falló pool init");
 
     app.layer_surface = Some(layer_surface);
     app.pool = Some(pool);
 
-    // Arrancar video
     app.pipeline.set_state(gstreamer::State::Playing)
         .expect("No se pudo iniciar la reproducción de GStreamer");
 
@@ -172,9 +154,7 @@ fn main() {
 
     println!("Motor iniciado correctamente para el monitor: {}", target_monitor);
 
-    // 2. BUCLE PRINCIPAL (Evento de Wayland + Mensajes de GStreamer)
     while !app.exit {
-        // Procesar mensajes de GStreamer
         while let Some(msg) = bus.pop() {
             match msg.view() {
                 gstreamer::MessageView::Eos(..) => {
@@ -198,7 +178,6 @@ fn main() {
     }
 }
 
-// MODIFICACIÓN: Se añadió .arg("--daemon") para que el hijo ejecute el motor
 fn spawn_core_instance(video: &str, monitor: &str) {
     let _ = std::process::Command::new(std::env::current_exe().unwrap())
         .arg(video)
